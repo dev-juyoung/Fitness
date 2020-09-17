@@ -50,5 +50,13 @@ android {
 }
 
 dependencies {
+    // dependencies for kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    
+    // dependencies for google fit
+    implementation 'com.google.android.gms:play-services-fitness:19.0.0'
+    implementation 'com.google.android.gms:play-services-auth:18.1.0'
+    
+    // dependencies for devtools
+    implementation 'com.jakewharton.timber:timber:4.7.1'
 }
