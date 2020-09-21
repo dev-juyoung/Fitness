@@ -118,68 +118,61 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
         
         let dateFrom = Date(timeIntervalSince1970: dateFromEpoch.doubleValue / 1000)
         let dateTo = Date(timeIntervalSince1970: dateToEpoch.doubleValue / 1000)
-        
-        print("[dateFrom]::\(dateFrom)")
-        print("[dateTo]::\(dateTo)")
-        print("[bucketByTime]::\(bucketByTime)")
-        print("[timeUnit]::\(timeUnit)")
-        
-        let predicate = HKQuery.predicateForSamples(withStart: dateFrom, end: dateTo, options: .strictStartDate)
         let interval = bucketByTime.interval(for: timeUnit)
         
-        let query = HKStatisticsCollectionQuery(quantityType: self.dataType as! HKQuantityType,
-                                                quantitySamplePredicate: predicate,
-                                                options: [.cumulativeSum],
-                                                anchorDate: dateFrom,
-                                                intervalComponents: interval)
-        
-        query.initialResultsHandler = { _, collectionOrNil, error in
-            guard let collection = collectionOrNil else {
-                result([])
-                return
-            }
+        getPredicate(dateFrom: dateFrom, dateTo: dateTo) { predicate in
+            let query = HKStatisticsCollectionQuery(quantityType: self.dataType as! HKQuantityType,
+                                                    quantitySamplePredicate: predicate,
+                                                    options: [.cumulativeSum],
+                                                    anchorDate: dateFrom,
+                                                    intervalComponents: interval)
             
-            var samples: [(value: Double, startDate: Date, endDate: Date)] = []
-            
-            collection.enumerateStatistics(from: dateFrom, to: dateTo) { statistics, stop in
-                
-                if let quantity = statistics.sumQuantity() {
-                    samples.append((quantity.doubleValue(for: self.dataUnit), statistics.startDate, statistics.endDate))
+            query.initialResultsHandler = { _, collectionOrNil, error in
+                guard let collection = collectionOrNil else {
+                    result([])
+                    return
                 }
+                
+                var samples: [(value: Double, startDate: Date, endDate: Date)] = []
+                
+                collection.enumerateStatistics(from: dateFrom, to: dateTo) { statistics, stop in
+                    
+                    if let quantity = statistics.sumQuantity() {
+                        samples.append((quantity.doubleValue(for: self.dataUnit), statistics.startDate, statistics.endDate))
+                    }
+                }
+                
+                result(samples.map { sample -> NSDictionary in
+                    [
+                        "value": Int(sample.value),
+                        "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
+                        "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
+                        "source": "HealthKit"
+                    ]
+                })
             }
             
-            let total = samples.map({Int($0.value)}).reduce(0, +)
-            print("[TOTAL]::\(total)")
-            
-            result(samples.map { sample -> NSDictionary in
-                [
-                    "value": Int(sample.value),
-                    "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
-                    "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
-                    "source": "HealthKit"
-                ]
-            })
+            self.healthStore.execute(query)
         }
-        
-        self.healthStore.execute(query)
     }
     
-    private func getSourcePredicate(completion: @escaping (NSPredicate?) -> Void) {
-        var predicateSources: Set<HKSource> = Set()
+    private func getPredicate(dateFrom: Date, dateTo: Date, completion: @escaping (NSPredicate) -> Void) {
+        var sources: Set<HKSource> = Set()
+        let predicate = HKQuery.predicateForSamples(withStart: dateFrom, end: dateTo, options: .strictStartDate)
         
         let query = HKSourceQuery(sampleType: dataType, samplePredicate: nil) { _, sourcesOrNil, error in
-            guard let sources = sourcesOrNil, error != nil else {
-                completion(nil)
+            guard let results = sourcesOrNil, error == nil else {
+                completion(predicate)
                 return
             }
             
-            for source in sources {
+            for source in results {
                 if source.bundleIdentifier.hasPrefix("com.apple.health") {
-                    predicateSources.insert(source)
+                    sources.insert(source)
                 }
             }
             
-            completion(HKQuery.predicateForObjects(from: predicateSources))
+            completion(NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, HKQuery.predicateForObjects(from: sources)]))
         }
         
         healthStore.execute(query)
