@@ -20,10 +20,16 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
     private let ARG_BUCKET_BY_TIME = "bucket_by_time"
     private let ARG_TIME_UNIT = "time_unit"
     
-    // errors
-    private let UNAUTHORIZED = "You cannot data read. user has not been authenticated."
-    private let MISSING_REQUIRED_ARGUMENTS = "Missing Required Arguments."
-    private let REQUEST_CANCELED = "Request Canceled"
+    // error codes
+    private let ERROR_EXCEPTION = "exception"
+    private let ERROR_NOT_SUPPORTED = "not_supported"
+    private let ERROR_UNAUTHORIZED = "unauthorized"
+    private let ERROR_MISSING_REQUIRED_ARGUMENTS = "missing_required_arguments"
+    
+    // error messages
+    private let ERROR_NOT_SUPPORTED_MESSAGE = "The device does not support the Health Kit."
+    private let ERROR_UNAUTHORIZED_MESSAGE = "You cannot used. user has not been authenticated."
+    private let ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE = "Missing required arguments."
     
     private let healthStore : HKHealthStore = HKHealthStore()
     private let dataType: HKSampleType = HKSampleType.quantityType(forIdentifier: .stepCount)!
@@ -37,7 +43,7 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard HKHealthStore.isHealthDataAvailable() else {
-            result(FlutterError(code: TAG, message: "Not supported", details: nil))
+            result(FlutterError(code: ERROR_NOT_SUPPORTED, message: ERROR_NOT_SUPPORTED_MESSAGE, details: nil))
             return
         }
         
@@ -57,28 +63,30 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
     }
     
     private func hasPermission(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        if #available(iOS 12.0, *) {
-            healthStore.getRequestStatusForAuthorization(toShare: [], read: Set(arrayLiteral: dataType)) { status, error in
-                guard error == nil else {
-                    result(FlutterError(code: self.TAG, message: error.debugDescription, details: nil))
-                    return
-                }
-                
-                guard status == HKAuthorizationRequestStatus.unnecessary else {
+        isPermissionGranted { isGranted, error in
+            guard error == nil else {
+                result(FlutterError(code: self.ERROR_EXCEPTION, message: error.debugDescription, details: nil))
+                return
+            }
+            
+            let dateFrom = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+            let dateTo = Date()
+            var interval = DateComponents()
+            interval.month = 1
+            
+            self.readData(dateFrom: dateFrom, dateTo: dateTo, interval: interval) { collectionOrNil, error in
+                guard let collection = collectionOrNil, error == nil else {
                     result(false)
                     return
                 }
                 
-                result(true)
+                result(collection.statistics().count > 0)
             }
-        } else {
-            let authorized = healthStore.authorizationStatus(for: dataType) != HKAuthorizationStatus.notDetermined
-            result(authorized)
         }
     }
     
     private func requestPermission(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        isAuthorized { success, error in
+        healthStore.requestAuthorization(toShare: nil, read: Set(arrayLiteral: dataType)) { success, error in
             guard success else {
                 result(false)
                 return
@@ -90,44 +98,38 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
     
     /**
      Not supported by HealthKit.
+     Always return true.
      */
     private func revokePermission(call: FlutterMethodCall, result: @escaping FlutterResult) {
         result(true)
     }
     
     private func read(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let arguments = call.arguments as? Dictionary<String, Any>,
+            let dateFromEpoch = arguments[ARG_DATE_FROM] as? NSNumber,
+            let dateToEpoch = arguments[ARG_DATE_TO] as? NSNumber,
+            let bucketByTime = arguments[self.ARG_BUCKET_BY_TIME] as? Int,
+            let timeUnit = arguments[self.ARG_TIME_UNIT] as? String else {
+                result(FlutterError(code: ERROR_MISSING_REQUIRED_ARGUMENTS, message: ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE, details: nil))
+                return
+        }
+        
         isAuthorized { success, error in
             guard success else {
                 result(error)
                 return
             }
             
-            self.query(call: call, result: result)
-        }
-    }
-    
-    private func query(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let arguments = call.arguments as? Dictionary<String, Any>,
-            let dateFromEpoch = arguments[ARG_DATE_FROM] as? NSNumber,
-            let dateToEpoch = arguments[ARG_DATE_TO] as? NSNumber,
-            let bucketByTime = arguments[self.ARG_BUCKET_BY_TIME] as? Int,
-            let timeUnit = arguments[self.ARG_TIME_UNIT] as? String else {
-                result(FlutterError(code: TAG, message: MISSING_REQUIRED_ARGUMENTS, details: nil))
-                return
-        }
-        
-        let dateFrom = Date(timeIntervalSince1970: dateFromEpoch.doubleValue / 1000)
-        let dateTo = Date(timeIntervalSince1970: dateToEpoch.doubleValue / 1000)
-        let interval = bucketByTime.interval(for: timeUnit)
-        
-        getPredicate(dateFrom: dateFrom, dateTo: dateTo) { predicate in
-            let query = HKStatisticsCollectionQuery(quantityType: self.dataType as! HKQuantityType,
-                                                    quantitySamplePredicate: predicate,
-                                                    options: [.cumulativeSum],
-                                                    anchorDate: dateFrom,
-                                                    intervalComponents: interval)
+            let dateFrom = Date(timeIntervalSince1970: dateFromEpoch.doubleValue / 1000)
+            let dateTo = Date(timeIntervalSince1970: dateToEpoch.doubleValue / 1000)
+            let interval = bucketByTime.interval(for: timeUnit)
             
-            query.initialResultsHandler = { _, collectionOrNil, error in
+            self.readData(dateFrom: dateFrom, dateTo: dateTo, interval: interval) { collectionOrNil, error in
+                guard error == nil else {
+                    result(FlutterError(code: self.ERROR_EXCEPTION, message: error.debugDescription, details: nil))
+                    return
+                }
+                
                 guard let collection = collectionOrNil else {
                     result([])
                     return
@@ -150,6 +152,75 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
                         "source": "HealthKit"
                     ]
                 })
+            }
+        }
+    }
+    
+    private func isAuthorized(completion: @escaping (Bool, FlutterError?) -> Void) {
+        isPermissionGranted { granted, error in
+            guard error == nil else {
+                completion(false, error)
+                return
+            }
+            
+            let dateFrom = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+            let dateTo = Date()
+            var interval = DateComponents()
+            interval.month = 1
+            
+            self.readData(dateFrom: dateFrom, dateTo: dateTo, interval: interval) { collectionOrNil, error in
+                guard let collection = collectionOrNil, error == nil else {
+                    completion(false, FlutterError(code: self.ERROR_UNAUTHORIZED, message: self.ERROR_UNAUTHORIZED_MESSAGE, details: nil))
+                    // result(false)
+                    return
+                }
+                
+                completion(collection.statistics().count > 0, nil)
+            }
+        }
+    }
+    
+    private func isPermissionGranted(completion: @escaping (Bool, FlutterError?) -> Void) {
+        if #available(iOS 12.0, *) {
+            healthStore.getRequestStatusForAuthorization(toShare: [], read: Set(arrayLiteral: dataType)) { status, error in
+                guard error == nil else {
+                    completion(false, FlutterError(code: self.ERROR_EXCEPTION, message: error.debugDescription, details: nil))
+                    return
+                }
+                
+                guard status == HKAuthorizationRequestStatus.unnecessary else {
+                    completion(false, nil)
+                    return
+                }
+                
+                completion(true, nil)
+            }
+        } else {
+            let authorized = healthStore.authorizationStatus(for: dataType) != HKAuthorizationStatus.notDetermined
+            completion(authorized, nil)
+        }
+    }
+    
+    private func readData(dateFrom: Date, dateTo: Date, interval: DateComponents, completion: @escaping (HKStatisticsCollection?, Error?) -> Void) {
+        getPredicate(dateFrom: dateFrom, dateTo: dateTo) { predicate in
+            let query = HKStatisticsCollectionQuery(quantityType: self.dataType as! HKQuantityType,
+                                                    quantitySamplePredicate: predicate,
+                                                    options: [.cumulativeSum],
+                                                    anchorDate: dateFrom,
+                                                    intervalComponents: interval)
+            
+            query.initialResultsHandler = { _, collectionOrNil, error in
+                guard error == nil else {
+                    completion(nil, error)
+                    return
+                }
+                
+                guard let collection = collectionOrNil else {
+                    completion(nil, nil)
+                    return
+                }
+                
+                completion(collection, nil)
             }
             
             self.healthStore.execute(query)
@@ -176,17 +247,6 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
         }
         
         healthStore.execute(query)
-    }
-    
-    private func isAuthorized(completion: @escaping (Bool, FlutterError?) -> Void) {
-        healthStore.requestAuthorization(toShare: nil, read: Set(arrayLiteral: dataType)) { success, error in
-            guard success else {
-                completion(false, FlutterError(code: self.TAG, message: error.debugDescription, details: nil))
-                return
-            }
-            
-            completion(true, nil)
-        }
     }
 }
 

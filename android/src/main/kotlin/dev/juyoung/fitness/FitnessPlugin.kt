@@ -11,6 +11,7 @@ import com.google.android.gms.fitness.FitnessOptions
 import com.google.android.gms.fitness.data.DataPoint
 import com.google.android.gms.fitness.data.DataType
 import com.google.android.gms.fitness.request.DataReadRequest
+import dev.juyoung.fitness.exceptions.MissingArgumentException
 import dev.juyoung.fitness.extensions.getInt
 import dev.juyoung.fitness.extensions.getLong
 import dev.juyoung.fitness.extensions.getString
@@ -52,10 +53,16 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
         const val ARG_BUCKET_BY_TIME = "bucket_by_time"
         const val ARG_TIME_UNIT = "time_unit"
 
-        // errors
-        const val UNAUTHORIZED = "You cannot data read. user has not been authenticated."
-        const val MISSING_REQUIRED_ARGUMENTS = "Missing Required Arguments."
-        const val REQUEST_CANCELED = "Request Canceled"
+        // error codes
+        const val ERROR_EXCEPTION = "exception"
+        const val ERROR_UNAUTHORIZED = "unauthorized"
+        const val ERROR_MISSING_REQUIRED_ARGUMENTS = "missing_required_arguments"
+        const val ERROR_REQUEST_CANCELED = "request_canceled"
+
+        // error messages
+        const val ERROR_UNAUTHORIZED_MESSAGE = "You cannot used. user has not been authenticated."
+        const val ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE = "Missing required arguments."
+        const val ERROR_REQUEST_CANCELED_MESSAGE = "Request canceled."
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -116,7 +123,10 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
                 else -> result.notImplemented()
             }
         } catch (e: Throwable) {
-            result.error(TAG, e.message, null)
+            when (e) {
+                is MissingArgumentException -> result.error(ERROR_MISSING_REQUIRED_ARGUMENTS, ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE, null)
+                else -> result.error(ERROR_EXCEPTION, e.message, null)
+            }
         }
     }
 
@@ -183,14 +193,14 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
     @Throws
     private fun read(call: MethodCall, result: Result) {
         if (!isAuthorized()) {
-            result.error(TAG, UNAUTHORIZED, null)
+            result.error(ERROR_UNAUTHORIZED, ERROR_UNAUTHORIZED_MESSAGE, null)
             return
         }
-
-        val dateFrom = call.getLong(ARG_DATE_FROM) ?: throw Exception(MISSING_REQUIRED_ARGUMENTS)
-        val dateTo = call.getLong(ARG_DATE_TO) ?: throw Exception(MISSING_REQUIRED_ARGUMENTS)
-        val bucketByTime = call.getInt(ARG_BUCKET_BY_TIME) ?: 1
-        val timeUnit = call.getString(ARG_TIME_UNIT)?.timeUnit ?: TimeUnit.DAYS
+        
+        val dateFrom = call.getLong(ARG_DATE_FROM) ?: throw MissingArgumentException()
+        val dateTo = call.getLong(ARG_DATE_TO) ?: throw MissingArgumentException()
+        val bucketByTime = call.getInt(ARG_BUCKET_BY_TIME) ?: throw MissingArgumentException()
+        val timeUnit = call.getString(ARG_TIME_UNIT)?.timeUnit ?: throw MissingArgumentException()
 
         val request = DataReadRequest.Builder()
                 .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
@@ -208,8 +218,8 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
                             .map(::dataPointToMap)
                             .let(result::success)
                 }
-                .addOnFailureListener { result.error(TAG, it.message, null) }
-                .addOnCanceledListener { result.error(TAG, REQUEST_CANCELED, null) }
+                .addOnFailureListener { result.error(ERROR_EXCEPTION, it.message, null) }
+                .addOnCanceledListener { result.error(ERROR_REQUEST_CANCELED, ERROR_REQUEST_CANCELED_MESSAGE, null) }
     }
 
     private fun dataPointToMap(dataPoint: DataPoint): Map<String, Any> {
