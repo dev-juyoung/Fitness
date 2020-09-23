@@ -62,6 +62,12 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
         }
     }
     
+    /*
+     Quite rightly so, Apple deems even the information as to whether a user accepted or denied the read permission for HealthKit as sensitive information.
+     For this reason, HealthKit does not have a clear way to check permissions.
+     
+     As a workaround, it checks whether you can read data within the last month or not to see if you actually have read access.
+     */
     private func hasPermission(call: FlutterMethodCall, result: @escaping FlutterResult) {
         isPermissionGranted { isGranted, error in
             guard error == nil else {
