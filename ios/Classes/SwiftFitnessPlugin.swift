@@ -155,7 +155,7 @@ public class SwiftFitnessPlugin: NSObject, FlutterPlugin {
                         "value": Int(sample.value),
                         "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
                         "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
-                        "source": "HealthKit"
+                        "source": "Apple Health"
                     ]
                 })
             }

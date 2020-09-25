@@ -41,5 +41,8 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+    <!-- Health KIT Configurations -->
+    <key>NSHealthShareUsageDescription</key>
+    <string>Used to read user data</string>
 </dict>
 </plist>
