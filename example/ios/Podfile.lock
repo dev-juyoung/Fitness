@@ -1,0 +1,22 @@
+PODS:
+  - fitness (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+
+DEPENDENCIES:
+  - fitness (from `.symlinks/plugins/fitness/ios`)
+  - Flutter (from `Flutter`)
+
+EXTERNAL SOURCES:
+  fitness:
+    :path: ".symlinks/plugins/fitness/ios"
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  fitness: 7170c65c2078490b06a74a9d1ce4b7464097237a
+  Flutter: 0e3d915762c693b495b44d77113d4970485de6ec
+
+PODFILE CHECKSUM: aafe91acc616949ddb318b77800a7f51bffa2a4c
+
+COCOAPODS: 1.9.3
