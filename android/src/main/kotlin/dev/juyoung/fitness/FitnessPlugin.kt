@@ -1,8 +1,12 @@
 package dev.juyoung.fitness
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -25,10 +29,12 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.ActivityResultListener
+import io.flutter.plugin.common.PluginRegistry.RequestPermissionsResultListener
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
-class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityResultListener {
+class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityResultListener,
+    RequestPermissionsResultListener {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private lateinit var activityBinding: ActivityPluginBinding
@@ -39,6 +45,7 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
         const val CHANNEL = "plugins.juyoung.dev/fitness"
 
         // permission request code
+        const val ACTIVITY_RECOGNITION_REQUEST_CODE = 3641
         const val GOOGLE_FIT_REQUEST_CODE = 2172
 
         // method names
@@ -105,13 +112,16 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
     private fun attachToActivity(binding: ActivityPluginBinding) {
         activityBinding = binding.also {
             it.addActivityResultListener(this)
+            it.addRequestPermissionsResultListener(this)
         }
     }
 
     private fun disposeActivity() {
-        activityBinding.removeActivityResultListener(this)
+        with(activityBinding) {
+            removeActivityResultListener(this@FitnessPlugin)
+            removeRequestPermissionsResultListener(this@FitnessPlugin)
+        }
     }
-
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         try {
@@ -124,102 +134,107 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
             }
         } catch (e: Throwable) {
             when (e) {
-                is MissingArgumentException -> result.error(ERROR_MISSING_REQUIRED_ARGUMENTS, ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE, null)
+                is MissingArgumentException -> result.error(
+                    ERROR_MISSING_REQUIRED_ARGUMENTS,
+                    ERROR_MISSING_REQUIRED_ARGUMENTS_MESSAGE,
+                    null
+                )
                 else -> result.error(ERROR_EXCEPTION, e.message, null)
             }
         }
     }
 
     private fun subscribe() {
-        if (!isAuthorized()) {
+        if (!isPermissionAcquired()) {
             Timber.w("$TAG::subscribe::You cannot subscribe. user has not been authenticated.")
             return
         }
 
         Fitness.getRecordingClient(context, getFitnessAccount())
-                .subscribe(DataType.TYPE_STEP_COUNT_CUMULATIVE)
-                .addOnCompleteListener {
-                    if (it.isSuccessful) {
-                        Timber.i("$TAG::subscribe::Successfully subscribed.")
-                    } else {
-                        Timber.w("$TAG::subscribe::There was a problem subscribing.${it.exception}")
-                    }
+            .subscribe(DataType.TYPE_STEP_COUNT_CUMULATIVE)
+            .addOnCompleteListener {
+                if (it.isSuccessful) {
+                    Timber.i("$TAG::subscribe::Successfully subscribed.")
+                } else {
+                    Timber.w("$TAG::subscribe::There was a problem subscribing.${it.exception}")
                 }
+            }
     }
 
     private fun hasPermission(call: MethodCall, result: Result) {
-        result.success(isAuthorized())
+        result.success(isPermissionAcquired())
     }
 
     private fun requestPermission(call: MethodCall, result: Result) {
         pendingResult = result
 
-        if (isAuthorized()) {
+        if (isPermissionAcquired()) {
             result.success(true)
             pendingResult = null
             return
         }
 
-        GoogleSignIn.requestPermissions(
-                activityBinding.activity,
-                GOOGLE_FIT_REQUEST_CODE,
-                getFitnessAccount(),
-                getFitnessOptions()
-        )
+        requestActivityRecognitionPermission()
     }
 
     // Related: https://github.com/android/fit-samples/issues/28
     private fun revokePermission(call: MethodCall, result: Result) {
         Fitness.getConfigClient(context, getFitnessAccount())
-                .disableFit()
-                .continueWithTask {
-                    val signInOptions = GoogleSignInOptions.Builder()
-                            .addExtension(FitnessOptions.builder().build())
-                            .build()
+            .disableFit()
+            .continueWithTask {
+                val signInOptions = GoogleSignInOptions.Builder()
+                    .addExtension(FitnessOptions.builder().build())
+                    .build()
 
-                    GoogleSignIn.getClient(context, signInOptions).revokeAccess()
+                GoogleSignIn.getClient(context, signInOptions).revokeAccess()
+            }
+            .addOnSuccessListener { result.success(true) }
+            .addOnFailureListener {
+                Timber.e("$TAG::revokePermission::$it")
+                if (!isAuthorized()) {
+                    result.success(true)
+                } else {
+                    result.success(false)
                 }
-                .addOnSuccessListener { result.success(true) }
-                .addOnFailureListener {
-                    Timber.e("$TAG::revokePermission::$it")
-                    if (!isAuthorized()) {
-                        result.success(true)
-                    } else {
-                        result.success(false)
-                    }
-                }
+            }
     }
 
     @Throws
     private fun read(call: MethodCall, result: Result) {
-        if (!isAuthorized()) {
+        if (!isPermissionAcquired()) {
             result.error(ERROR_UNAUTHORIZED, ERROR_UNAUTHORIZED_MESSAGE, null)
             return
         }
-        
+
         val dateFrom = call.getLong(ARG_DATE_FROM) ?: throw MissingArgumentException()
         val dateTo = call.getLong(ARG_DATE_TO) ?: throw MissingArgumentException()
         val bucketByTime = call.getInt(ARG_BUCKET_BY_TIME) ?: throw MissingArgumentException()
         val timeUnit = call.getString(ARG_TIME_UNIT)?.timeUnit ?: throw MissingArgumentException()
 
         val request = DataReadRequest.Builder()
-                .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
-                .bucketByTime(bucketByTime, timeUnit)
-                .setTimeRange(dateFrom, dateTo, TimeUnit.MILLISECONDS)
-                .enableServerQueries()
-                .build()
+            .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
+            .bucketByTime(bucketByTime, timeUnit)
+            .setTimeRange(dateFrom, dateTo, TimeUnit.MILLISECONDS)
+            .enableServerQueries()
+            .build()
 
         Fitness.getHistoryClient(context, getFitnessAccount())
-                .readData(request)
-                .addOnSuccessListener { response ->
-                    (response.dataSets + response.buckets.flatMap { it.dataSets })
-                            .filterNot { it.isEmpty }
-                            .flatMap { it.dataPoints }
-                            .map(::dataPointToMap)
-                            .let(result::success)
-                }
-                .addOnFailureListener { result.error(ERROR_EXCEPTION, it.message, null) }
-                .addOnCanceledListener { result.error(ERROR_REQUEST_CANCELED, ERROR_REQUEST_CANCELED_MESSAGE, null) }
+            .readData(request)
+            .addOnSuccessListener { response ->
+                (response.dataSets + response.buckets.flatMap { it.dataSets })
+                    .filterNot { it.isEmpty }
+                    .flatMap { it.dataPoints }
+                    .map(::dataPointToMap)
+                    .let(result::success)
+            }
+            .addOnFailureListener { result.error(ERROR_EXCEPTION, it.message, null) }
+            .addOnCanceledListener {
+                result.error(
+                    ERROR_REQUEST_CANCELED,
+                    ERROR_REQUEST_CANCELED_MESSAGE,
+                    null
+                )
+            }
     }
 
     private fun dataPointToMap(dataPoint: DataPoint): Map<String, Any> {
@@ -227,17 +242,57 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
         val source = dataPoint.originalDataSource.streamName
 
         return mapOf<String, Any>(
-                "value" to dataPoint.getValue(field).asInt(),
-                "date_from" to dataPoint.getStartTime(TimeUnit.MILLISECONDS),
-                "date_to" to dataPoint.getEndTime(TimeUnit.MILLISECONDS),
-                "source" to source
+            "value" to dataPoint.getValue(field).asInt(),
+            "date_from" to dataPoint.getStartTime(TimeUnit.MILLISECONDS),
+            "date_to" to dataPoint.getEndTime(TimeUnit.MILLISECONDS),
+            "source" to source
+        )
+    }
+
+    // Android OS system permission related
+    private fun hasActivityRecognition(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            return true
+        }
+    }
+
+    private fun requestActivityRecognitionPermission() {
+        if (hasActivityRecognition()) {
+            requestFitnessPermission()
+            return
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            ActivityCompat.requestPermissions(
+                activityBinding.activity,
+                arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
+                ACTIVITY_RECOGNITION_REQUEST_CODE
+            )
+        } else {
+            requestFitnessPermission()
+        }
+    }
+
+    // Google Fitness related
+    private fun requestFitnessPermission() {
+        GoogleSignIn.requestPermissions(
+            activityBinding.activity,
+            GOOGLE_FIT_REQUEST_CODE,
+            getFitnessAccount(),
+            getFitnessOptions()
         )
     }
 
     private fun getFitnessOptions(): FitnessOptions {
         return FitnessOptions.builder()
-                .addDataType(DataType.TYPE_STEP_COUNT_DELTA)
-                .build()
+            .addDataType(DataType.TYPE_STEP_COUNT_DELTA, FitnessOptions.ACCESS_READ)
+            .addDataType(DataType.TYPE_STEP_COUNT_DELTA, FitnessOptions.ACCESS_WRITE)
+            .build()
     }
 
     private fun getFitnessAccount(): GoogleSignInAccount {
@@ -246,6 +301,10 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
 
     private fun isAuthorized(): Boolean {
         return GoogleSignIn.hasPermissions(getFitnessAccount(), getFitnessOptions())
+    }
+
+    private fun isPermissionAcquired(): Boolean {
+        return hasActivityRecognition() && isAuthorized()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
@@ -259,5 +318,28 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
         pendingResult?.success(true)
         pendingResult = null
         return true
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>?,
+        grantResults: IntArray?
+    ): Boolean {
+        return when (requestCode) {
+            ACTIVITY_RECOGNITION_REQUEST_CODE -> {
+                val granted =
+                    grantResults != null && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+
+                if (granted) {
+                    requestFitnessPermission()
+                } else {
+                    pendingResult?.success(false)
+                    pendingResult = null
+                }
+
+                true
+            }
+            else -> false
+        }
     }
 }
