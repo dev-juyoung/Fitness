@@ -12,7 +12,7 @@ dependencies:
   fitness:
     path: ../
   intl: ^0.16.1
-  lottie: ^0.6.0
+  lottie: ^0.7.0+1
   cupertino_icons: ^1.0.0
 
 dev_dependencies:
