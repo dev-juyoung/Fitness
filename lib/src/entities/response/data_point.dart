@@ -2,7 +2,7 @@ class DataPoint {
   final num value;
   final DateTime dateFrom;
   final DateTime dateTo;
-  final String source;
+  final String? source;
 
   DataPoint(
     this.value,
