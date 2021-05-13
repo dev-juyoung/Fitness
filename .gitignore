@@ -502,5 +502,6 @@ fabric.properties
 # Start customized
 
 **/ios/**/.last_build_id
+.fvm/flutter_sdk
 
 # End customized
