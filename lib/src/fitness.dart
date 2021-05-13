@@ -14,19 +14,19 @@ class Fitness {
   );
 
   static Future<bool> hasPermission() async {
-    return _channel.invokeMethod('hasPermission');
+    return await _channel.invokeMethod('hasPermission') ?? false;
   }
 
   static Future<bool> requestPermission() async {
-    return _channel.invokeMethod('requestPermission');
+    return await _channel.invokeMethod('requestPermission') ?? false;
   }
 
   static Future<bool> revokePermission() async {
-    return _channel.invokeMethod('revokePermission');
+    return await _channel.invokeMethod('revokePermission') ?? false;
   }
 
   static Future<List<DataPoint>> read({
-    TimeRange timeRange,
+    TimeRange? timeRange,
     int bucketByTime = 1,
     TimeUnit timeUnit = TimeUnit.days,
   }) async {
@@ -37,10 +37,10 @@ class Fitness {
       'date_to': timeRange != null
           ? timeRange.end.millisecondsSinceEpoch
           : DateTime.now().max,
-      'bucket_by_time': bucketByTime ?? 1,
-      'time_unit': timeUnit?.value ?? TimeUnit.days.value,
+      'bucket_by_time': bucketByTime,
+      'time_unit': timeUnit.value,
     }).then(
-      (response) => response
+      (response) => response!
           .map((data) => DataPoint.fromJson(Map<String, dynamic>.from(data)))
           .toList(),
     );

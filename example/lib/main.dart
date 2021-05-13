@@ -100,8 +100,6 @@ class _FitnessApplicationState extends State<FitnessApplication> {
     int bucketByTime = 1,
     TimeUnit timeUnit = TimeUnit.days,
   }) async {
-    final now = DateTime.now();
-
     final results = await Fitness.read(
       timeRange: timeRange,
       bucketByTime: bucketByTime,
