@@ -96,7 +96,7 @@ class _FitnessApplicationState extends State<FitnessApplication> {
   }
 
   void _read({
-    @required TimeRange timeRange,
+    required TimeRange timeRange,
     int bucketByTime = 1,
     TimeUnit timeUnit = TimeUnit.days,
   }) async {
@@ -129,13 +129,13 @@ class _FitnessApplicationState extends State<FitnessApplication> {
         ),
         body: _buildBody(),
         floatingActionButton:
-            _status == PermissionStatus.granted && Platform.isAndroid
-                ? FloatingActionButton(
-                    child: Icon(Icons.link_off),
-                    backgroundColor: Colors.deepOrangeAccent,
-                    onPressed: _revokePermission,
-                  )
-                : null,
+        _status == PermissionStatus.granted && Platform.isAndroid
+            ? FloatingActionButton(
+          child: Icon(Icons.link_off),
+          backgroundColor: Colors.deepOrangeAccent,
+          onPressed: _revokePermission,
+        )
+            : null,
       ),
     );
   }
@@ -231,40 +231,41 @@ class _FitnessApplicationState extends State<FitnessApplication> {
           Expanded(
             child: _dataPoints.isNotEmpty
                 ? ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: _dataPoints.length,
-                    itemBuilder: (context, index) {
-                      final dataPoint = _dataPoints[index];
+              shrinkWrap: true,
+              itemCount: _dataPoints.length,
+              itemBuilder: (context, index) {
+                final dataPoint = _dataPoints[index];
 
-                      return ListTile(
-                        leading: Image.asset(
-                          'assets/ic_shoes.png',
-                          width: 24.0,
-                          height: 24.0,
-                        ),
-                        title: Text('${dataPoint.value} steps'),
-                        subtitle: Text(
-                          '${_format(dataPoint.dateFrom)} - ${_format(dataPoint.dateTo)}',
-                        ),
-                      );
-                    },
-                    separatorBuilder: (_, __) {
-                      return SizedBox(height: 16.0);
-                    },
-                  )
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Lottie.asset(
-                        'assets/walk.json',
-                        width: 100.0,
-                        fit: BoxFit.fill,
-                      ),
-                      Text('How about taking a walk for a while?'),
-                    ],
+                return ListTile(
+                  leading: Image.asset(
+                    'assets/ic_shoes.png',
+                    width: 24.0,
+                    height: 24.0,
                   ),
+                  title: Text('${dataPoint.value} steps'),
+                  subtitle: Text(
+                    '${_format(dataPoint.dateFrom)} - ${_format(
+                        dataPoint.dateTo)}',
+                  ),
+                );
+              },
+              separatorBuilder: (_, __) {
+                return SizedBox(height: 16.0);
+              },
+            )
+                : Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Lottie.asset(
+                  'assets/walk.json',
+                  width: 100.0,
+                  fit: BoxFit.fill,
+                ),
+                Text('How about taking a walk for a while?'),
+              ],
+            ),
           ),
         ],
       ),

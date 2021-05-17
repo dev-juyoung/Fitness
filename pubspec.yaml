@@ -1,6 +1,6 @@
 name: fitness
 description: Flutter plugin for reading step count data. Wraps HealthKit on iOS and GoogleFit on Android.
-version: 1.0.0
+version: 1.0.1
 homepage: https://github.com/dev-juyoung/Fitness
 
 environment:
