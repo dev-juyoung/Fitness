@@ -1,3 +1,7 @@
+## 1.0.1
+
+* Migrate the example project to null-safety
+
 ## 1.0.0
 
 * Migrate to null-safety
