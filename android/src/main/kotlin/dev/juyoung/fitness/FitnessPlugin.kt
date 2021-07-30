@@ -12,6 +12,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.fitness.Fitness
 import com.google.android.gms.fitness.FitnessOptions
+import com.google.android.gms.fitness.data.DataSource.Builder
 import com.google.android.gms.fitness.data.DataPoint
 import com.google.android.gms.fitness.data.DataType
 import com.google.android.gms.fitness.request.DataReadRequest
@@ -211,8 +212,15 @@ class FitnessPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, ActivityR
         val bucketByTime = call.getInt(ARG_BUCKET_BY_TIME) ?: throw MissingArgumentException()
         val timeUnit = call.getString(ARG_TIME_UNIT)?.timeUnit ?: throw MissingArgumentException()
 
+        val datasource = DataSource.Builder()
+            .setAppPackageName("com.google.android.gms")
+            .setDataType(DataType.TYPE_STEP_COUNT_DELTA)
+            .setType(DataSource.TYPE_DERIVED)
+            .setStreamName("estimated_steps")
+            .build()
+
         val request = DataReadRequest.Builder()
-            .aggregate(DataType.TYPE_STEP_COUNT_DELTA)
+            .aggregate(datasource)
             .bucketByTime(bucketByTime, timeUnit)
             .setTimeRange(dateFrom, dateTo, TimeUnit.MILLISECONDS)
             .enableServerQueries()
